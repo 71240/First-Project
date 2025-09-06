@@ -1,248 +1,126 @@
-Here’s your **full updated grocery list app** code with:
-
-* Free-typed categories (stored in Google Sheets column **E**).
-* Auto-generated category filter tabs.
-* A live **search box** above the filters.
-
----
-
-# **Google Sheet Setup**
-
-Create a sheet called **GroceryList** with the following headers in row 1:
-
-```
-A: id        | B: name  | C: amount | D: crossed | E: category | F: createdAt | G: updatedAt
-```
-
-* Column **E (category)** is where all categories are stored.
-* Each new item will automatically get its category written there.
-* If left blank, it defaults to **Uncategorized**.
-
----
-
-# **Frontend HTML (index.html)**
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
   <title>Grocery List</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-    .card { background: white; padding: 16px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-    .row { display: flex; gap: 10px; margin-bottom: 10px; }
-    input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 8px; }
-    button { padding: 8px 12px; border: none; border-radius: 8px; cursor: pointer; background: #1976d2; color: white; }
-    button.secondary { background: #555; }
-    button.danger { background: #d32f2f; }
-    button.filter { background: #eee; color: #333; }
-    button.filter.active { background: #1976d2; color: white; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+    h1 { text-align: center; }
+    #controls { display: flex; gap: 10px; margin-bottom: 20px; }
+    #controls input { flex: 1; padding: 6px; }
+    #items { margin-top: 20px; }
+    .item { padding: 8px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
     .crossed { text-decoration: line-through; color: gray; }
-    .clickable { cursor: pointer; }
-    #filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .amount { font-size: 0.9em; color: #555; margin-left: 8px; }
+    .category-tabs { margin-bottom: 10px; }
+    .category-tabs button { margin-right: 5px; padding: 5px 10px; }
+    .delete-btn { background: red; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
   </style>
 </head>
 <body>
-  <h1>Grocery List</h1>
+  <h1>🛒 Grocery List</h1>
 
-  <!-- Add Item Section -->
-  <section class="card" aria-label="Add item">
-    <div class="row">
-      <input id="itemInput" type="text" placeholder="Add an item (e.g., bananas)" />
-      <input id="categoryInput" type="text" placeholder="Category (e.g., Produce)" />
-      <button id="addBtn">Add Item</button>
-    </div>
-    <div id="status" aria-live="polite"></div>
-  </section>
+  <div id="controls">
+    <input type="text" id="itemInput" placeholder="Add an item..." />
+    <input type="text" id="categoryInput" placeholder="Category (optional)" />
+    <button onclick="addItem()">Add</button>
+  </div>
 
-  <!-- Search Box -->
-  <section class="card" aria-label="Search items">
-    <input id="searchInput" type="text" placeholder="Search items..." />
-  </section>
+  <input type="text" id="searchInput" placeholder="Search items..." oninput="renderItems()" />
 
-  <!-- Filter Tabs -->
-  <section class="card" aria-label="Category filters">
-    <div id="filters"></div>
-  </section>
+  <div class="category-tabs" id="categoryTabs"></div>
 
-  <!-- List Display Section -->
-  <section class="card" aria-label="Grocery list">
-    <table id="listTable">
-      <thead>
-        <tr>
-          <th style="width:30%">Item</th>
-          <th style="width:15%">Amount</th>
-          <th style="width:20%">Category</th>
-          <th style="width:35%">Actions</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </section>
+  <div id="items"></div>
 
   <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbw-opuhHpnlWM-lGGqLR1AH6yBYcBfKLuvnbv5hNXS6s1eokBtqKVHGEY2CKR_X1cX2/exec"; // replace with your Apps Script Web App URL
-    let currentFilter = 'All';
+    const API_URL = "https://script.google.com/macros/s/AKfycbwqvsrSkUKSJV6rB5GGRurZ9-npCO86iXGa9vqcvXYdamOabQ1fKC28UZZY0z3Ulpzm/exec"; // paste your Web App URL here
     let allItems = [];
-    let searchQuery = '';
+    let activeCategory = "All";
 
-    document.getElementById('addBtn').addEventListener('click', ()=>{
-      const name = document.getElementById('itemInput').value.trim();
-      addItem(name);
-    });
-
-    document.getElementById('searchInput').addEventListener('input', e => {
-      searchQuery = e.target.value.toLowerCase();
-      renderList();
-    });
-
-    function setStatus(msg, ok){
-      const el = document.getElementById('status');
-      el.textContent = msg;
-      el.style.color = ok === 'ok' ? 'green' : (ok === 'err' ? 'red' : 'black');
-    }
-
-    async function addItem(name){
-      name = name.trim();
-      const category = document.getElementById('categoryInput').value.trim() || "Uncategorized";
-      if(!name){ setStatus('Please enter an item name.', 'err'); return; }
-      try{
-        const body = new URLSearchParams({ action: 'add', name, category });
-        const res = await fetch(API_URL, { method: 'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body });
-        const json = await res.json();
-        if(json.status !== 'success') throw new Error(json.message || 'Unknown error');
-        setStatus('Item added.', 'ok');
-        document.getElementById('itemInput').value = '';
-        document.getElementById('categoryInput').value = '';
-        await loadList();
-      }catch(err){
-        console.error(err);
-        setStatus('Failed to add: ' + err.message, 'err');
+    async function loadItems() {
+      const res = await fetch(`${API_URL}?action=list`);
+      const data = await res.json();
+      if (data.status === "success") {
+        allItems = data.items;
+        renderCategories();
+        renderItems();
       }
     }
 
-    async function loadList(){
-      try{
-        const res = await fetch(API_URL + '?action=list');
-        const json = await res.json();
-        if(json.status !== 'success') throw new Error(json.message || 'Unknown error');
-        allItems = json.items;
-        buildFilters();
-        renderList();
-      }catch(err){
-        console.error(err);
-        setStatus('Failed to load list: ' + err.message, 'err');
-      }
-    }
-
-    function buildFilters(){
-      const filtersDiv = document.getElementById('filters');
-      filtersDiv.innerHTML = '';
-      const categories = [...new Set(allItems.map(i => i.category || 'Uncategorized'))];
-      categories.sort();
-      categories.unshift('All');
-      categories.forEach(cat => {
-        const btn = document.createElement('button');
-        btn.textContent = cat;
-        btn.className = 'filter' + (cat === currentFilter ? ' active' : '');
-        btn.addEventListener('click', ()=>{
-          currentFilter = cat;
-          buildFilters();
-          renderList();
-        });
-        filtersDiv.appendChild(btn);
+    async function addItem() {
+      const name = document.getElementById("itemInput").value.trim();
+      const category = document.getElementById("categoryInput").value.trim();
+      if (!name) return alert("Enter an item name!");
+      await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ action: "add", name, category })
       });
+      document.getElementById("itemInput").value = "";
+      document.getElementById("categoryInput").value = "";
+      loadItems();
     }
 
-    function renderList(){
-      const tbody = document.querySelector('#listTable tbody');
-      tbody.innerHTML = '';
-      allItems
-        .filter(item => currentFilter === 'All' || item.category === currentFilter)
-        .filter(item => !searchQuery || item.name.toLowerCase().includes(searchQuery))
-        .forEach(item => tbody.insertAdjacentHTML('beforeend', rowHtml(item)));
+    async function toggleItem(id) {
+      await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ action: "toggle", id })
+      });
+      loadItems();
     }
 
-    function rowHtml(item){
-      const crossedCls = item.crossed ? 'crossed' : '';
-      const amountCls = 'clickable';
-      return `<tr data-id="${item.id}">
-        <td><span class="item-name ${crossedCls}">${escapeHtml(item.name)}</span></td>
-        <td><span class="${amountCls}">${escapeHtml(item.amount || '')}</span></td>
-        <td>${escapeHtml(item.category || '—')}</td>
-        <td class="actions">
-          <button class="secondary" data-action="toggle">${item.crossed ? 'Uncross' : 'Cross off'}</button>
-          <button class="danger" data-action="delete">Delete</button>
-        </td>
-      </tr>`;
+    async function editAmount(id) {
+      const amount = prompt("Enter amount:");
+      if (!amount) return;
+      await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ action: "editAmount", id, amount })
+      });
+      loadItems();
     }
 
-    document.querySelector('#listTable tbody').addEventListener('click', async e =>{
-      const tr = e.target.closest('tr');
-      if(!tr) return;
-      const id = tr.dataset.id;
-      const action = e.target.dataset.action;
-
-      if(action === 'toggle'){
-        await updateItem(id, 'toggle');
-      }
-      if(action === 'delete'){
-        await updateItem(id, 'delete');
-      }
-    });
-
-    document.querySelector('#listTable tbody').addEventListener('dblclick', async e =>{
-      if(e.target.classList.contains('clickable')){
-        const tr = e.target.closest('tr');
-        const id = tr.dataset.id;
-        const current = e.target.textContent;
-        const newVal = prompt('Enter new amount:', current);
-        if(newVal !== null){
-          await updateItem(id, 'editAmount', newVal);
-        }
-      }
-    });
-
-    async function updateItem(id, action, value){
-      try{
-        const body = new URLSearchParams({ action, id });
-        if(action === 'editAmount') body.append('amount', value);
-        const res = await fetch(API_URL, { method: 'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'}, body });
-        const json = await res.json();
-        if(json.status !== 'success') throw new Error(json.message || 'Unknown error');
-        await loadList();
-      }catch(err){
-        console.error(err);
-        setStatus('Update failed: ' + err.message, 'err');
-      }
+    async function deleteItem(id) {
+      if (!confirm("Delete this item?")) return;
+      await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ action: "delete", id })
+      });
+      loadItems();
     }
 
-    function escapeHtml(str){
-      return str.replace(/[&<>'"]/g, tag => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;','\"':'&quot;'}[tag]));
+    function renderCategories() {
+      const cats = ["All", ...new Set(allItems.map(i => i.category))];
+      const container = document.getElementById("categoryTabs");
+      container.innerHTML = cats.map(c => 
+        `<button onclick="setCategory('${c}')">${c}</button>`
+      ).join("");
     }
 
-    loadList();
+    function setCategory(cat) {
+      activeCategory = cat;
+      renderItems();
+    }
+
+    function renderItems() {
+      const search = document.getElementById("searchInput").value.toLowerCase();
+      const filtered = allItems.filter(i =>
+        (activeCategory === "All" || i.category === activeCategory) &&
+        i.name.toLowerCase().includes(search)
+      );
+      document.getElementById("items").innerHTML = filtered.map(i => `
+        <div class="item ${i.crossed ? 'crossed' : ''}" 
+             onclick="toggleItem('${i.id}')" 
+             ondblclick="editAmount('${i.id}')">
+          <span>${i.name} ${i.amount ? `<span class="amount">(${i.amount})</span>` : ""}</span>
+          <button class="delete-btn" onclick="event.stopPropagation(); deleteItem('${i.id}')">X</button>
+        </div>
+      `).join("");
+    }
+
+    loadItems();
   </script>
 </body>
 </html>
-```
-
----
-
-# **Google Apps Script (Code.gs)**
-
-No changes needed — it already saves categories in column **E** and returns them to the frontend.
-
----
-
-✅ With this setup:
-
-* Categories live in **column E** of your Google Sheet.
-* The frontend builds filters + search dynamically from your data.
-* Search works alongside category filters.
-
-Do you also want the app to **remember the last selected filter/search** (so if you refresh, it stays on the same category/search)?
